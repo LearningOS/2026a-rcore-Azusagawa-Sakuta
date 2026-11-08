@@ -136,6 +136,26 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    /// Increment syscall_trace id's time
+    fn inc_syscall_trace(&self, id: usize) {
+        if id >= MAX_SYSCALL_NUM {
+            return;
+        }
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_times[id] += 1;
+    }
+
+    /// Get syscall_trace id's time
+    fn get_syscall_trace(&self, id: usize) -> usize {
+        if id >= MAX_SYSCALL_NUM {
+            return 0;
+        }
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_times[id] as usize
+    }
 }
 
 /// Run the first task in task list.
@@ -173,14 +193,10 @@ pub fn exit_current_and_run_next() {
 
 /// Increment syscall_trace id's time
 pub fn inc_syscall_trace(id: usize) {
-    let mut inner = TASK_MANAGER.inner.exclusive_access();
-    let current = inner.current_task;
-    inner.tasks[current].syscall_times[id] += 1;
+    TASK_MANAGER.inc_syscall_trace(id);
 }
 
 /// Get syscall_trace id's time
 pub fn get_syscall_trace(id: usize) -> usize {
-    let inner = TASK_MANAGER.inner.exclusive_access();
-    let current = inner.current_task;
-    inner.tasks[current].syscall_times[id]
+    TASK_MANAGER.get_syscall_trace(id)
 }
