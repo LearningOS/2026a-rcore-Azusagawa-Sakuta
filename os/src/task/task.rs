@@ -68,6 +68,9 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    // Syscall count
+    // pub syscall_cnt: [u32; MAX_SYSCALL_NUM],
 }
 
 impl TaskControlBlockInner {

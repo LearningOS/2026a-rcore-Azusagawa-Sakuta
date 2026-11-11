@@ -2,12 +2,15 @@
 use alloc::sync::Arc;
 
 use crate::{
+    // config::PAGE_SIZE,
     loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str},
-    task::{
-        add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next,
+    mm::{
+        translated_byte_buffer, MapPermission, translated_refmut, translated_str
     },
+    task::{
+        current_user_token, exit_current_and_run_next, suspend_current_and_run_next, add_task, current_task
+    },
+    timer::get_time_us
 };
 
 #[repr(C)]
@@ -105,30 +108,106 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
+    trace!("kernel: sys_get_time");
+    let len = core::mem::size_of::<TimeVal>();
+    let ts = translated_byte_buffer(
+        current_user_token(), 
+        ts as *const u8, 
+        len
     );
-    -1
+    let us = get_time_us();
+    let tv = TimeVal {
+        usec : us % 1_000_000,
+        sec  : us / 1_000_000,
+    };
+    let src = unsafe {
+        core::slice::from_raw_parts(&tv as *const TimeVal as *const u8, len)
+    };
+    if ts.iter().map(|x| x.len()).sum::<usize>() != len {
+        return -1;
+    }
+    let mut written = 0;
+    for slice in ts {
+        let n = slice.len().min(len - written);
+        slice[..n].copy_from_slice(&src[written..written + n]);
+        written += n;
+        if written == len {
+            break;
+        }
+    }
+    0
 }
 
-/// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+/// TODO: Finish sys_trace to pass testcases
+/// HINT: You might reimplement it with virtual memory management.
+// pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
+//     trace!("kernel: sys_trace");
+//     match trace_request {
+//         0 => {
+//             let table = PageTable::from_token(current_user_token());
+//             let vpn = VirtAddr::from(id).floor();
+//             match table.translate(vpn){
+//                 Some(pte) => {
+//                     if !pte.is_valid() || !pte.readable() || 
+//                         !pte.flags().contains(PTEFlags::U) {
+//                         -1
+//                     } else {
+//                         let ppn = pte.ppn();
+//                         ppn.get_bytes_array()[id & (PAGE_SIZE - 1)] as isize
+//                     }
+//                 },
+//                 _ => { -1 }
+//             }
+//         },
+//         1 => {
+//             let table = PageTable::from_token(current_user_token());
+//             let vpn = VirtAddr::from(id).floor();
+//             match table.translate(vpn) {
+//                 Some(pte) => {
+//                     if !pte.is_valid() || !pte.writable() ||
+//                         !pte.readable() || !pte.flags().contains(PTEFlags::U) {
+//                         -1
+//                     } else {
+//                         let ppn = pte.ppn();
+//                         ppn.get_bytes_array()[id & (PAGE_SIZE - 1)] = data as u8;
+//                         0
+//                     }
+//                 },
+//                 _ => { -1 }
+//             }
+//         },
+//         2 => {
+//             get_syscall_trace(id) as isize
+//         },
+//         _ => { -1 },
+//     }
+// }
+
+// YOUR JOB: Implement mmap.
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
+    trace!("kernel: sys_mmap");
+    let start = start.into();
+    if port == 0 || port & !0x7 != 0 {
+        return -1;
+    }
+    let perm = 
+        match MapPermission::from_bits((port << 1) as u8 | MapPermission::U.bits()) {
+            Some(p) => { p },
+            None => { return -1; },
+        };
+    if mmap(start, len, perm) {
+        0
+    } else { -1 }
 }
 
-/// YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+// YOUR JOB: Implement munmap.
+pub fn sys_munmap(start: usize, len: usize) -> isize {
+    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
+    let start = start.into();
+    if munmap(start, len) {
+        0
+    } else { -1 }
 }
 
 /// change data segment size
