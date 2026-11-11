@@ -15,6 +15,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{MapPermission, VirtAddr};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -126,6 +127,41 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_trap_cx()
     }
 
+    /// Map user address area
+    fn mmap(&self, start: VirtAddr, len: usize, perm: MapPermission) -> bool {
+        if len == 0 || !start.aligned() { return false; }
+        let end = if let Some(end) = usize::from(start).checked_add(len) {
+            end.into()
+        } else {
+            return false;
+        };
+        let mut inner = 
+            self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].memory_set.mmap(
+            start,
+            end,
+            perm
+        )
+    }
+
+    /// Unmap user address area
+    fn munmap(&self, start: VirtAddr, len: usize) -> bool {
+        if len == 0 || !start.aligned() { return false; }
+        let end = if let Some(end) = usize::from(start).checked_add(len) {
+            end.into()
+        } else {
+            return false;
+        };
+        let mut inner = 
+            self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].memory_set.munmap(
+            start, 
+            end,
+        )
+    }
+
     /// Change the current 'Running' task's program break
     pub fn change_current_program_brk(&self, size: i32) -> Option<usize> {
         let mut inner = self.inner.exclusive_access();
@@ -152,6 +188,20 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    /// Increment the syscall count of id_th syscall
+    fn inc_syscall_trace(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_cnt[id] += 1;
+    }
+
+    /// Get the syscall count of id_th syscall
+    fn get_syscall_trace(&self, id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_cnt[id] as usize
     }
 }
 
@@ -201,4 +251,24 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Increment syscall trace for id
+pub fn inc_syscall_trace(id: usize) {
+    TASK_MANAGER.inc_syscall_trace(id);
+}
+
+/// Get syscall trace for id
+pub fn get_syscall_trace(id: usize) -> usize {
+    TASK_MANAGER.get_syscall_trace(id)
+}
+
+/// Map user address range
+pub fn mmap(start: VirtAddr, len: usize, perm: MapPermission) -> bool {
+    TASK_MANAGER.mmap(start, len, perm)
+}
+
+/// Unmap user address range
+pub fn munmap(start: VirtAddr, len: usize) -> bool {
+    TASK_MANAGER.munmap(start, len)
 }
