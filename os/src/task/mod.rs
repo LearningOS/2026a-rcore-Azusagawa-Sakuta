@@ -21,7 +21,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::loader::get_app_data_by_name;
+use crate::{loader::get_app_data_by_name, mm::{MapPermission, VirtAddr}};
 use alloc::sync::Arc;
 use lazy_static::*;
 pub use manager::{fetch_task, TaskManager};
@@ -101,6 +101,41 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     schedule(&mut _unused as *mut _);
 }
 
+/// Map user address area
+pub fn mmap(start: VirtAddr, len: usize, perm: MapPermission) -> bool {
+    if len == 0 || !start.aligned() { return false; }
+    let end = if let Some(end) = usize::from(start).checked_add(len) {
+        end.into()
+    } else {
+        return false;
+    };
+    let task = current_task().unwrap();
+    let mut inner = 
+        task.inner_exclusive_access();
+    inner.memory_set.mmap(
+        start,
+        end,
+        perm
+    )
+}
+
+/// Unmap user address area
+pub fn munmap(start: VirtAddr, len: usize) -> bool {
+    if len == 0 || !start.aligned() { return false; }
+    let end = if let Some(end) = usize::from(start).checked_add(len) {
+        end.into()
+    } else {
+        return false;
+    };
+    let task = current_task().unwrap();
+    let mut inner = 
+        task.inner_exclusive_access();
+    inner.memory_set.munmap(
+        start, 
+        end,
+    )
+}
+
 lazy_static! {
     /// Creation of initial process
     ///
@@ -115,3 +150,4 @@ lazy_static! {
 pub fn add_initproc() {
     add_task(INITPROC.clone());
 }
+

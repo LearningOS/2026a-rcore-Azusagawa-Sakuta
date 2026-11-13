@@ -8,7 +8,7 @@ use crate::{
         translated_byte_buffer, MapPermission, translated_refmut, translated_str
     },
     task::{
-        current_user_token, exit_current_and_run_next, suspend_current_and_run_next, add_task, current_task
+        current_user_token, exit_current_and_run_next, suspend_current_and_run_next, add_task, current_task, mmap, munmap
     },
     timer::get_time_us
 };
@@ -139,51 +139,6 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     0
 }
 
-/// TODO: Finish sys_trace to pass testcases
-/// HINT: You might reimplement it with virtual memory management.
-// pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
-//     trace!("kernel: sys_trace");
-//     match trace_request {
-//         0 => {
-//             let table = PageTable::from_token(current_user_token());
-//             let vpn = VirtAddr::from(id).floor();
-//             match table.translate(vpn){
-//                 Some(pte) => {
-//                     if !pte.is_valid() || !pte.readable() || 
-//                         !pte.flags().contains(PTEFlags::U) {
-//                         -1
-//                     } else {
-//                         let ppn = pte.ppn();
-//                         ppn.get_bytes_array()[id & (PAGE_SIZE - 1)] as isize
-//                     }
-//                 },
-//                 _ => { -1 }
-//             }
-//         },
-//         1 => {
-//             let table = PageTable::from_token(current_user_token());
-//             let vpn = VirtAddr::from(id).floor();
-//             match table.translate(vpn) {
-//                 Some(pte) => {
-//                     if !pte.is_valid() || !pte.writable() ||
-//                         !pte.readable() || !pte.flags().contains(PTEFlags::U) {
-//                         -1
-//                     } else {
-//                         let ppn = pte.ppn();
-//                         ppn.get_bytes_array()[id & (PAGE_SIZE - 1)] = data as u8;
-//                         0
-//                     }
-//                 },
-//                 _ => { -1 }
-//             }
-//         },
-//         2 => {
-//             get_syscall_trace(id) as isize
-//         },
-//         _ => { -1 },
-//     }
-// }
-
 // YOUR JOB: Implement mmap.
 pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
     trace!("kernel: sys_mmap");
@@ -222,12 +177,21 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
+pub fn sys_spawn(path: *const u8) -> isize {
     trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_spawn",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        let task = current_task().unwrap();
+        let child = task.spawn(data);
+        add_task(child.clone());
+        child.getpid() as isize
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: Set task priority.
