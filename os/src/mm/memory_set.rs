@@ -289,6 +289,55 @@ impl MemorySet {
         self.areas.clear();
     }
 
+    /// map the [start, end) into memory set
+    /// 
+    /// @param: START should be aligned
+    /// @param: END should be larger than START
+    /// @param: PERMISSION should contains U
+    pub fn mmap(
+        &mut self,
+        start: VirtAddr,
+        end: VirtAddr,
+        permission: MapPermission
+    ) -> bool {
+        assert!(start < end);
+        assert!(permission.contains(MapPermission::U));
+        assert!(start.aligned());
+        let start_vpn = start.floor();
+        let end_vpn   = end.ceil();
+        if self.areas.iter()
+            .any(
+                |x|
+                start_vpn < x.vpn_range.get_end() && end_vpn > x.vpn_range.get_start()
+            ) {
+            return false;
+        }
+        self.insert_framed_area(start, end, permission);
+        true
+    }
+
+    /// unmap [start, end) from memory set
+    ///
+    /// @param: START should be aligned
+    /// @param: END should be larger then START
+    pub fn munmap(&mut self, start: VirtAddr, end: VirtAddr) -> bool {
+        assert!(start < end);
+        assert!(start.aligned());
+        let start_vpn = start.floor();
+        let end_vpn   = end.ceil();
+        let idx = self.areas.iter().position(
+            |x| {
+            x.map_perm.contains(MapPermission::U) &&
+                x.vpn_range.get_start() == start_vpn &&
+                x.vpn_range.get_end()   == end_vpn
+            }
+        );
+        if let Some(idx) = idx {
+            self.areas.remove(idx).unmap(&mut self.page_table);
+            true
+        } else { false }
+    }
+
     /// shrink the area to new_end
     #[allow(unused)]
     pub fn shrink_to(&mut self, start: VirtAddr, new_end: VirtAddr) -> bool {
